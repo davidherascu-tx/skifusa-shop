@@ -235,6 +235,22 @@ export function adminContactMessage(m: { name: string; email: string; phone: str
   };
 }
 
+export function contactReply(r: { name: string; topic: string | null; order_number: string | null; original: string; reply: string }): Out {
+  const subject = `Re: ${r.topic ?? "your message"}${r.order_number ? ` (order #${r.order_number})` : ""}`.replace(/[\r\n]+/g, " ");
+  return {
+    subject,
+    html: layout({
+      preheader: "Our reply to your message.",
+      title: `Hello ${r.name},`,
+      bodyHtml:
+        `<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#0c0a09;white-space:pre-wrap;">${esc(r.reply)}</p>` +
+        `<p style="margin:18px 0 6px;font-size:12px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#78716c;">Your message</p>` +
+        `<p style="margin:0 0 14px;padding:14px;background:#f5f5f4;border-radius:10px;font-size:14px;line-height:1.6;color:#57534e;white-space:pre-wrap;">${esc(r.original)}</p>`,
+    }),
+    text: `Hello ${r.name},\n\n${r.reply}\n\n--- Your message ---\n${r.original}`,
+  };
+}
+
 export function eventAccess(e: { name: string; start: string; minutes: number | null; join_url: string; join_info: string | null }): Out {
   const times = eventTimesByZone(e.start, e.minutes);
   const when = [eventDateLabel(e.start), ...times.map((t) => `${t.label}: ${t.text}`)].join("\n");

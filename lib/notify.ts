@@ -81,6 +81,13 @@ export const notifyContact = (m: { name: string; email: string; phone: string | 
     if (to.length) await sendEmail({ to, replyTo: m.email, ...t.adminContactMessage(m) });
   });
 
+/** Sends an admin's reply to a contact message. Returns false if the email could not be sent. */
+export async function sendContactReply(r: { to: string; name: string; topic: string | null; order_number: string | null; original: string; reply: string }): Promise<boolean> {
+  if (!emailConfigured()) return false;
+  const { to, ...rest } = r;
+  return sendEmail({ to, replyTo: adminRecipients()[0] || undefined, ...t.contactReply(rest) });
+}
+
 /** Emails the Zoom link to everyone who has PAID for the event. Returns how many emails were sent. */
 export async function sendEventAccessEmails(productId: string): Promise<{ sent: number; total: number; error?: string }> {
   if (!emailConfigured()) return { sent: 0, total: 0, error: "Email is not set up (Resend)." };

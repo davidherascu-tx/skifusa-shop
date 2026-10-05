@@ -6,7 +6,7 @@ import { z } from "zod";
 import { ORDER_STATUSES, requireAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/server";
 import { restockOrder } from "@/lib/orders";
-import { notifyMemberDecision, notifyOrderStatus, sendEventAccessEmails } from "@/lib/notify";
+import { notifyMemberDecision, notifyOrderStatus, sendContactReply, sendEventAccessEmails } from "@/lib/notify";
 import { zonedToUtc } from "@/lib/event";
 
 /** Only ever redirect back to an admin page. */
@@ -113,6 +113,40 @@ export async function setMessageHandled(formData: FormData) {
   if (error || !data?.length) redirect(withParam(back, "error", "Could not update the message"));
   revalidatePath("/admin", "layout");
   redirect(withParam(back, "saved", input.data.handled === "true" ? "Marked as handled" : "Reopened"));
+}
+
+export async function replyToMessage(formData: FormData) {
+  const { supabase } = await requireAdmin();
+  const input = z.object({ id: z.uuid(), reply: z.string().trim().min(2, "Please write a reply").max(5000) }).safeParse({
+    id: formData.get("id"),
+    reply: formData.get("reply"),
+  });
+  const back = safeReturn(formData.get("returnTo"), "/admin/messages");
+  if (!input.success) redirect(withParam(back, "error", input.error.issues[0]?.message ?? "Invalid reply"));
+
+  const { data: msg } = await supabase
+    .from("contact_messages")
+    .select("id, name, email, topic, order_number, message")
+    .eq("id", input.data.id)
+    .maybeSingle();
+  if (!msg) redirect(withParam(back, "error", "Message not found"));
+
+  const sent = await sendContactReply({
+    to: msg.email,
+    name: msg.name,
+    topic: msg.topic,
+    order_number: msg.order_number,
+    original: msg.message,
+    reply: input.data.reply,
+  });
+  if (!sent) redirect(withParam(back, "error", "The reply could not be sent. Check that email (Resend) is set up, then try again."));
+
+  const { error } = await supabase
+    .from("contact_messages")
+    .update({ reply: input.data.reply, replied_at: new Date().toISOString(), handled: true })
+    .eq("id", msg.id);
+  revalidatePath("/admin", "layout");
+  redirect(withParam(back, "saved", error ? "Reply sent (could not save a copy: run migration 0008)" : `Reply sent to ${msg.email}`));
 }
 
 // ---------- live online events (virtual products) ----------

@@ -130,3 +130,7 @@ alter table public.contact_messages add column if not exists phone text;
 
 -- 0007: optional phone on contact messages
 alter table public.contact_messages add column if not exists phone text;
+
+-- 0008: replies sent from admin Messages
+alter table public.contact_messages add column if not exists reply text;
+alter table public.contact_messages add column if not exists replied_at timestamptz;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin";
-import { setMessageHandled } from "../actions";
+import { replyToMessage, setMessageHandled } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
 import { Notice } from "@/components/admin/notice";
 
@@ -13,6 +13,8 @@ type Msg = {
   topic: string | null;
   order_number: string | null;
   message: string;
+  reply: string | null;
+  replied_at: string | null;
   handled: boolean;
 };
 
@@ -27,7 +29,7 @@ export default async function AdminMessages({
 
   const { data, error: loadError } = await supabase
     .from("contact_messages")
-    .select("id, created_at, name, email, phone, topic, order_number, message, handled")
+    .select("id, created_at, name, email, phone, topic, order_number, message, reply, replied_at, handled")
     .order("created_at", { ascending: false })
     .limit(300)
     .overrideTypes<Msg[]>();
@@ -64,7 +66,6 @@ export default async function AdminMessages({
         <ul className="mt-6 space-y-4">
           {rows.map((m) => {
             const orderId = m.order_number ? orderByNumber.get(m.order_number) : undefined;
-            const reply = `mailto:${m.email}?subject=${encodeURIComponent(`Re: ${m.topic ?? "your message"}${m.order_number ? ` (order #${m.order_number})` : ""}`)}`;
             return (
               <li key={m.id} className="rounded-2xl border border-line p-5 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -94,8 +95,29 @@ export default async function AdminMessages({
                 {/* Rendered as plain text by React, so nothing a visitor typed can run as HTML. */}
                 <p className="mt-4 whitespace-pre-wrap rounded-xl bg-mist p-4 text-sm leading-relaxed">{m.message}</p>
 
+                {m.reply && (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
+                      Your reply{m.replied_at ? ` · ${new Date(m.replied_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}` : ""}
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap leading-relaxed">{m.reply}</p>
+                  </div>
+                )}
+
+                <details className="mt-4 rounded-xl border border-line">
+                  <summary className="cursor-pointer select-none px-5 py-3 text-sm font-semibold hover:text-crimson">
+                    {m.reply ? "Send another reply" : "Reply on the website"}
+                  </summary>
+                  <form action={replyToMessage} className="space-y-3 border-t border-line p-5">
+                    <input type="hidden" name="id" value={m.id} />
+                    <input type="hidden" name="returnTo" value={returnTo} />
+                    <p className="text-xs text-muted">Sent by email to {m.email}, with their message quoted below your reply.</p>
+                    <textarea name="reply" required rows={6} maxLength={5000} placeholder="Write your reply…" className="input" />
+                    <SaveButton className="btn btn-primary !px-6 !py-2.5">Send reply</SaveButton>
+                  </form>
+                </details>
+
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <a href={reply} className="btn btn-primary !px-5 !py-2">Reply by email</a>
                   <form action={setMessageHandled}>
                     <input type="hidden" name="id" value={m.id} />
                     <input type="hidden" name="handled" value={m.handled ? "false" : "true"} />
