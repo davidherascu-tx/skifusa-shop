@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PageShell, Todo } from "@/components/page-shell";
+import { PageShell } from "@/components/page-shell";
 import { ContactForm } from "@/components/contact-form";
 import { createClient } from "@/lib/supabase/server";
 import { makeFormToken } from "@/lib/contact";
@@ -33,7 +33,12 @@ export default async function Contact() {
           orderNumbers={orderNumbers}
         />
       </div>
-      <Todo>add the real phone number and address here, if you want to show them.</Todo>
+      <p className="pt-4">
+        <span className="block text-sm font-semibold uppercase tracking-wider text-muted">Email address</span>
+        <a href="mailto:skifusa@gmail.com" className="text-lg font-medium text-ink underline-offset-4 hover:text-crimson hover:underline">
+          skifusa@gmail.com
+        </a>
+      </p>
     </PageShell>
   );
 }

@@ -17,8 +17,15 @@ const nav = [
 export function Logo({ light = false }: { light?: boolean }) {
   return (
     <span className="flex items-center gap-3">
-      <span className={`shrink-0 overflow-hidden rounded-full ${light ? "bg-white" : ""}`}>
-        <Image src="/skif_shop_logo.webp" alt="" width={56} height={56} className="h-12 w-12 object-contain sm:h-14 sm:w-14" priority />
+      <span className="shrink-0">
+        <Image
+          src="/skif_shop_logo.webp"
+          alt=""
+          width={96}
+          height={96}
+          className={`object-contain ${light ? "h-20 w-20 sm:h-24 sm:w-24" : "h-16 w-16 sm:h-[4.5rem] sm:w-[4.5rem]"}`}
+          priority
+        />
       </span>
       <span className="flex flex-col leading-tight">
         <span className={`text-[10px] font-semibold uppercase tracking-wider sm:text-xs ${light ? "text-stone-300" : "text-stone-600"}`}>

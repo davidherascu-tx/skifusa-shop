@@ -11,7 +11,3 @@ export function PageShell({ eyebrow, title, children }: { eyebrow: string; title
     </>
   );
 }
-
-export const Todo = ({ children }: { children: React.ReactNode }) => (
-  <p className="rounded-xl border border-dashed border-line bg-mist p-4 text-sm text-muted">TODO: {children}</p>
-);
