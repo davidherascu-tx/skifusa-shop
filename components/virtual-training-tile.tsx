@@ -35,23 +35,23 @@ export function VirtualTrainingTile({ event }: { event: Product | null; name?: s
 
         {/* Next event */}
         {event && (
-          <div className="rounded-2xl border border-white/25 bg-white/10 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Next live session</p>
+          <div className="rounded-2xl border border-line bg-white p-4 text-ink shadow-2xl shadow-black/30 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">Next live session</p>
             <div className="mt-3 flex gap-4">
               {event.image_url && (
-                <Link href={`/products/${event.slug}`} className="relative hidden aspect-[4/5] w-28 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/20 sm:block" aria-label={event.name}>
+                <Link href={`/products/${event.slug}`} className="relative hidden aspect-[4/5] w-28 shrink-0 overflow-hidden rounded-xl ring-1 ring-black/10 sm:block" aria-label={event.name}>
                   <Image src={event.image_url} alt="" fill sizes="112px" className="object-cover" />
                 </Link>
               )}
               <div className="min-w-0">
                 <p className="font-semibold leading-snug">{event.name}</p>
-                <p className="mt-2 text-sm text-white/85">{eventDateLabel(event.event_start!)}</p>
-                <p className="text-sm text-white/85">{times[0]?.text}</p>
-                <p className="text-sm text-white/85">{times[1]?.text}</p>
+                <p className="mt-2 text-sm text-stone-700">{eventDateLabel(event.event_start!)}</p>
+                <p className="text-sm text-stone-700">{times[0]?.text}</p>
+                <p className="text-sm text-stone-700">{times[1]?.text}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
-                  <span className="rounded-full bg-white/15 px-3 py-1.5">{money(effectivePrice(event))}</span>
+                  <span className="rounded-full bg-mist px-3 py-1.5">{money(effectivePrice(event))}</span>
                   {left > 0 ? (
-                    <span className={`rounded-full px-3 py-1.5 ${left <= 10 ? "bg-amber-400 text-ink" : "bg-white/15"}`}>
+                    <span className={`rounded-full px-3 py-1.5 ${left <= 10 ? "bg-amber-400 text-ink" : "bg-mist"}`}>
                       {left <= 10 ? `Only ${left} spots left` : `${left} spots available`}
                     </span>
                   ) : (

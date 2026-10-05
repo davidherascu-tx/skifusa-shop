@@ -58,7 +58,7 @@ function summary(o: EmailOrder) {
   const ship = shippingOf(o);
   const shipRow = ship > 0 ? `<tr><td style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">Shipping</td><td align="right" style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">${money(ship)}</td></tr>` : "";
   const s = o.shipping ?? {};
-  const addr = [s.name, s.line1, s.line2, [s.city, s.state, s.postal_code].filter(Boolean).join(", "), s.country].filter(Boolean).map(esc).join("<br />");
+  const addr = [s.name, s.line1, s.line2, [s.city, s.state, s.postal_code].filter(Boolean).join(", "), s.country, s.phone ? `Tel: ${s.phone}` : ""].filter(Boolean).map(esc).join("<br />");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 16px;">${rows}${shipRow}
 <tr><td style="padding:12px 0 0;font-size:15px;font-weight:bold;">Total</td><td align="right" style="padding:12px 0 0;font-size:15px;font-weight:bold;">${money(o.total_cents)}</td></tr></table>
 ${o.shipping ? `<p style="margin:0 0 4px;font-size:12px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#78716c;">Ship to</p>
@@ -217,7 +217,7 @@ export function adminMemberRequest(r: { name: string; email: string; member_numb
   };
 }
 
-export function adminContactMessage(m: { name: string; email: string; topic: string; order_number: string | null; message: string }): Out {
+export function adminContactMessage(m: { name: string; email: string; phone: string | null; topic: string; order_number: string | null; message: string }): Out {
   const subjectLine = `Contact form: ${m.topic}${m.order_number ? ` · order #${m.order_number}` : ""}`.replace(/[\r\n]+/g, " ");
   return {
     subject: subjectLine,
@@ -225,13 +225,13 @@ export function adminContactMessage(m: { name: string; email: string; topic: str
       preheader: `${m.name} wrote to you via the contact form.`,
       title: "New contact message",
       bodyHtml:
-        p(`<strong>${esc(m.name)}</strong> &middot; <a href="mailto:${esc(m.email)}" style="color:#c8102e;">${esc(m.email)}</a>`) +
+        p(`<strong>${esc(m.name)}</strong> &middot; <a href="mailto:${esc(m.email)}" style="color:#c8102e;">${esc(m.email)}</a>${m.phone ? ` &middot; <a href="tel:${esc(m.phone)}" style="color:#c8102e;">${esc(m.phone)}</a>` : ""}`) +
         p(`Topic: <strong>${esc(m.topic)}</strong>${m.order_number ? `<br />Order number: <strong>#${esc(m.order_number)}</strong>` : ""}`) +
         `<p style="margin:0 0 14px;padding:14px;background:#f5f5f4;border-radius:10px;font-size:15px;line-height:1.6;color:#0c0a09;white-space:pre-wrap;">${esc(m.message)}</p>` +
         p("Just reply to this email to answer them."),
       cta: { label: "Open in admin", href: `${site()}/admin/messages` },
     }),
-    text: `${m.name} <${m.email}>\nTopic: ${m.topic}\nOrder number: ${m.order_number ?? "-"}\n\n${m.message}\n\n${site()}/admin/messages`,
+    text: `${m.name} <${m.email}>\nPhone: ${m.phone ?? "-"}\nTopic: ${m.topic}\nOrder number: ${m.order_number ?? "-"}\n\n${m.message}\n\n${site()}/admin/messages`,
   };
 }
 

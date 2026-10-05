@@ -29,7 +29,7 @@ export function ContactForm({ formToken, turnstileSiteKey, prefill, orderNumbers
     );
   }
 
-  const v = state.values ?? { name: prefill.name, email: prefill.email, topic: "", order: "", message: "" };
+  const v = state.values ?? { name: prefill.name, email: prefill.email, phone: "", topic: "", order: "", message: "" };
   const e = state.errors ?? {};
 
   return (
@@ -63,6 +63,13 @@ export function ContactForm({ formToken, turnstileSiteKey, prefill, orderNumbers
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label htmlFor="c-phone" className="mb-1.5 block text-sm font-medium">
+            Phone number <span className="font-normal text-muted">(optional)</span>
+          </label>
+          <input id="c-phone" name="phone" type="tel" maxLength={30} defaultValue={v.phone} autoComplete="tel" aria-describedby="c-phone-err" className="input" />
+          <Err id="c-phone-err" msg={e.phone} />
+        </div>
         <div>
           <label htmlFor="c-topic" className="mb-1.5 block text-sm font-medium">Topic</label>
           <select id="c-topic" name="topic" defaultValue={v.topic || TOPICS[0]} className="input">

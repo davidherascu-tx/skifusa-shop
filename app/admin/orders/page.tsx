@@ -122,6 +122,7 @@ export default async function AdminOrders({
                         {ship.line2 && <>{ship.line2}<br /></>}
                         {ship.city}, {ship.state} {ship.postal_code}<br />
                         {ship.country}
+                        {ship.phone && <><br />Tel: {ship.phone}</>}
                       </address>
                       )}
                     </div>

@@ -52,6 +52,7 @@ export function normalizeOrderNumber(v: string): string | null | undefined {
 export const contactSchema = z.object({
   name: z.string().trim().min(2, "Please enter your name").max(100),
   email: z.string().trim().toLowerCase().email("Please enter a valid email").max(254),
+  phone: z.string().trim().max(30).regex(/^[0-9+().\-\s]*$/, "Use digits only, e.g. 832-555-0100").optional().default(""),
   topic: z.enum(TOPICS),
   message: z.string().trim().min(10, "Please write at least a few words").max(2000, "Please keep it under 2000 characters"),
 });

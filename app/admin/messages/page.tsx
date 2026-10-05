@@ -9,6 +9,7 @@ type Msg = {
   created_at: string;
   name: string;
   email: string;
+  phone: string | null;
   topic: string | null;
   order_number: string | null;
   message: string;
@@ -26,7 +27,7 @@ export default async function AdminMessages({
 
   const { data, error: loadError } = await supabase
     .from("contact_messages")
-    .select("id, created_at, name, email, topic, order_number, message, handled")
+    .select("id, created_at, name, email, phone, topic, order_number, message, handled")
     .order("created_at", { ascending: false })
     .limit(300)
     .overrideTypes<Msg[]>();
@@ -70,7 +71,8 @@ export default async function AdminMessages({
                   <div>
                     <p className="text-lg font-semibold">{m.name}</p>
                     <p className="text-sm text-muted">
-                      <a href={`mailto:${m.email}`} className="hover:text-crimson">{m.email}</a> ·{" "}
+                      <a href={`mailto:${m.email}`} className="hover:text-crimson">{m.email}</a>
+                      {m.phone && <> · <a href={`tel:${m.phone}`} className="hover:text-crimson">{m.phone}</a></>} ·{" "}
                       {new Date(m.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
                     </p>
                   </div>

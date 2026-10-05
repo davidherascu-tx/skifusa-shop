@@ -17,6 +17,7 @@ export function AddressFields({ defaults }: { defaults?: Partial<Address> | null
           <option value="CA">Canada</option>
         </select>
       </div>
+      <input name="phone" type="tel" defaultValue={d.phone} placeholder="Phone number (optional)" autoComplete="tel" className="input" />
     </>
   );
 }

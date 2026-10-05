@@ -34,4 +34,5 @@ export type Shipping = {
   state?: string;
   postal_code?: string;
   country?: string;
+  phone?: string;
 };

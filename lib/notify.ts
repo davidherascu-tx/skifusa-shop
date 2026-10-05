@@ -75,7 +75,7 @@ export const notifyMemberDecision = (userId: string, approved: boolean) =>
   });
 
 /** Contact form -> the shop owner. Reply-To is the visitor, so "Reply" in the inbox answers them. */
-export const notifyContact = (m: { name: string; email: string; topic: string; order_number: string | null; message: string }) =>
+export const notifyContact = (m: { name: string; email: string; phone: string | null; topic: string; order_number: string | null; message: string }) =>
   safely("contact", async () => {
     const to = adminRecipients();
     if (to.length) await sendEmail({ to, replyTo: m.email, ...t.adminContactMessage(m) });

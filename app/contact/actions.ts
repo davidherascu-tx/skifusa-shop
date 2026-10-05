@@ -8,7 +8,7 @@ import { LIMITS, checkFormToken, contactSchema, countLinks, hashIp, normalizeOrd
 export type ContactState = {
   status: "idle" | "ok" | "error";
   message?: string;
-  errors?: Partial<Record<"name" | "email" | "order" | "topic" | "message", string>>;
+  errors?: Partial<Record<"name" | "email" | "phone" | "order" | "topic" | "message", string>>;
   values?: Record<string, string>;
   attempt: number;
 };
@@ -32,7 +32,7 @@ async function turnstileOk(token: string, ip: string) {
 
 export async function sendContact(prev: ContactState, formData: FormData): Promise<ContactState> {
   const attempt = prev.attempt + 1;
-  const values = { name: field(formData, "name"), email: field(formData, "email"), topic: field(formData, "topic"), order: field(formData, "order"), message: field(formData, "message") };
+  const values = { name: field(formData, "name"), email: field(formData, "email"), phone: field(formData, "phone"), topic: field(formData, "topic"), order: field(formData, "order"), message: field(formData, "message") };
   const fail = (message: string, errors?: ContactState["errors"]): ContactState => ({ status: "error", message, errors, values, attempt });
 
   // 1) Honeypot: real people never see or fill this field. Pretend success so bots learn nothing.
@@ -84,6 +84,7 @@ export async function sendContact(prev: ContactState, formData: FormData): Promi
   const record = {
     name: oneLine(parsed.data.name),
     email: parsed.data.email,
+    phone: parsed.data.phone || null,
     topic: parsed.data.topic,
     order_number: order ?? null,
     message: parsed.data.message,

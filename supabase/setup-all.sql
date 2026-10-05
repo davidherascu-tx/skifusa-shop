@@ -124,3 +124,9 @@ from (values
 ) as v(slug,name,descr,cat,price,sale,mem)
 join public.categories c on c.slug = v.cat
 on conflict do nothing;
+
+-- 0007: optional phone on contact messages
+alter table public.contact_messages add column if not exists phone text;
+
+-- 0007: optional phone on contact messages
+alter table public.contact_messages add column if not exists phone text;
