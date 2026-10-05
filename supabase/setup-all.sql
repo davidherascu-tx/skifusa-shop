@@ -134,3 +134,6 @@ alter table public.contact_messages add column if not exists phone text;
 -- 0008: replies sent from admin Messages
 alter table public.contact_messages add column if not exists reply text;
 alter table public.contact_messages add column if not exists replied_at timestamptz;
+
+-- 0009: sales tax charged on the order (included in total_cents)
+alter table public.orders add column if not exists tax_cents int not null default 0;

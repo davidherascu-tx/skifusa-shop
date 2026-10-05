@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { effectivePrice, shippingFor } from "@/lib/format";
+import { effectivePrice, shippingFor, taxFor } from "@/lib/format";
 import { addressSchema } from "@/lib/address";
 import { isVirtual, registrationClosed } from "@/lib/event";
 import { notifyOrderPlaced } from "@/lib/notify";
@@ -71,12 +71,17 @@ export async function POST(request: Request) {
     shipping = addr.data;
   }
 
+  const subtotal = lines.reduce((n, l) => n + l.unit * l.qty, 0);
+  const shippingCents = shippingFor(shipping !== null);
+  const tax = taxFor(subtotal + shippingCents);
+
   const { data: order, error: orderErr } = await admin
     .from("orders")
     .insert({
       user_id: user.id,
       email: user.email,
-      total_cents: lines.reduce((n, l) => n + l.unit * l.qty, 0) + shippingFor(shipping !== null),
+      total_cents: subtotal + shippingCents + tax,
+      tax_cents: tax,
       shipping,
     })
     .select("id")

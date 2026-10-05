@@ -7,7 +7,7 @@ import * as t from "@/lib/email-templates";
 async function loadOrder(orderId: string): Promise<t.EmailOrder | null> {
   const { data } = await createAdminClient()
     .from("orders")
-    .select("id, total_cents, email, shipping, cancel_reason, order_items(name, quantity, size, unit_price_cents, products(*))")
+    .select("id, total_cents, tax_cents, email, shipping, cancel_reason, order_items(name, quantity, size, unit_price_cents, products(*))")
     .eq("id", orderId)
     .maybeSingle();
   if (!data) return null;

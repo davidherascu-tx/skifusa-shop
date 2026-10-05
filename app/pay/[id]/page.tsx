@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { PayPalButtons } from "@/components/paypal-buttons";
 import { isSandbox, paypalConfigured } from "@/lib/paypal";
-import { money, shippingOf } from "@/lib/format";
+import { money, shippingOf, taxOf, SALES_TAX_LABEL } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Pay for your order", robots: { index: false } };
 
@@ -12,6 +12,7 @@ type Order = {
   id: string;
   status: string;
   total_cents: number;
+  tax_cents: number | null;
   order_items: { name: string; quantity: number; size: string | null; unit_price_cents: number }[];
 };
 
@@ -26,7 +27,7 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
   // RLS: only the owner can read this order.
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, total_cents, order_items(name, quantity, size, unit_price_cents)")
+    .select("id, status, total_cents, tax_cents, order_items(name, quantity, size, unit_price_cents)")
     .eq("id", id)
     .maybeSingle<Order>();
   if (!order) notFound();
@@ -50,6 +51,12 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
           <li className="flex justify-between gap-4 p-4 text-sm">
             <span>Shipping</span>
             <span className="font-medium">{money(shippingOf(order))}</span>
+          </li>
+        )}
+        {taxOf(order) > 0 && (
+          <li className="flex justify-between gap-4 p-4 text-sm">
+            <span>{SALES_TAX_LABEL}</span>
+            <span className="font-medium">{money(taxOf(order))}</span>
           </li>
         )}
         <li className="flex justify-between p-4 text-lg font-bold">

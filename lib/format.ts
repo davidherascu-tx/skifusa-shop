@@ -4,9 +4,15 @@ export const money = (cents: number) =>
 /** Flat shipping fee, charged once per order that contains at least one physical item. Virtual-only orders ship free. */
 export const SHIPPING_FLAT_CENTS = 1000;
 export const shippingFor = (hasPhysical: boolean) => (hasPhysical ? SHIPPING_FLAT_CENTS : 0);
-/** Shipping already included in an order's total (total minus the line items). */
-export const shippingOf = (o: { total_cents: number; order_items: { unit_price_cents: number; quantity: number }[] }) =>
-  Math.max(0, o.total_cents - o.order_items.reduce((n, i) => n + i.unit_price_cents * i.quantity, 0));
+/** Ohio state sales tax, applied to every order (items + shipping). County rates are not included. */
+export const SALES_TAX_RATE = 0.0575;
+export const SALES_TAX_LABEL = "Sales tax (OH 5.75%)";
+export const taxFor = (taxableCents: number) => Math.round(taxableCents * SALES_TAX_RATE);
+/** Sales tax stored on an order (0 for orders placed before tax was added). */
+export const taxOf = (o: { tax_cents?: number | null }) => o.tax_cents ?? 0;
+/** Shipping already included in an order's total (total minus line items minus tax). */
+export const shippingOf = (o: { total_cents: number; tax_cents?: number | null; order_items: { unit_price_cents: number; quantity: number }[] }) =>
+  Math.max(0, o.total_cents - taxOf(o) - o.order_items.reduce((n, i) => n + i.unit_price_cents * i.quantity, 0));
 
 export type Product = {
   id: string;

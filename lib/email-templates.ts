@@ -1,4 +1,4 @@
-import { money, shippingOf } from "@/lib/format";
+import { money, shippingOf, taxOf, SALES_TAX_LABEL } from "@/lib/format";
 import type { Shipping } from "@/lib/admin";
 import { eventDateLabel, eventTimesByZone } from "@/lib/event";
 
@@ -13,6 +13,7 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://skifusa-shop.co
 export type EmailOrder = {
   id: string;
   total_cents: number;
+  tax_cents?: number | null;
   email: string | null;
   shipping: Shipping | null;
   order_items: { name: string; quantity: number; size: string | null; unit_price_cents: number }[];
@@ -57,9 +58,10 @@ function summary(o: EmailOrder) {
     .join("");
   const ship = shippingOf(o);
   const shipRow = ship > 0 ? `<tr><td style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">Shipping</td><td align="right" style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">${money(ship)}</td></tr>` : "";
+  const taxRow = taxOf(o) > 0 ? `<tr><td style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">${SALES_TAX_LABEL}</td><td align="right" style="padding:8px 0;font-size:14px;border-bottom:1px solid #e7e5e4;">${money(taxOf(o))}</td></tr>` : "";
   const s = o.shipping ?? {};
   const addr = [s.name, s.line1, s.line2, [s.city, s.state, s.postal_code].filter(Boolean).join(", "), s.country, s.phone ? `Tel: ${s.phone}` : ""].filter(Boolean).map(esc).join("<br />");
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 16px;">${rows}${shipRow}
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 16px;">${rows}${shipRow}${taxRow}
 <tr><td style="padding:12px 0 0;font-size:15px;font-weight:bold;">Total</td><td align="right" style="padding:12px 0 0;font-size:15px;font-weight:bold;">${money(o.total_cents)}</td></tr></table>
 ${o.shipping ? `<p style="margin:0 0 4px;font-size:12px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#78716c;">Ship to</p>
 <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#44403c;">${addr}</p>` : o.virtual ? p("Online event: no shipping needed.") : ""}`;
@@ -69,6 +71,7 @@ const textSummary = (o: EmailOrder) =>
   [
     ...o.order_items.map((i) => `${i.quantity}x ${i.name}${i.size ? ` (${i.size})` : ""}  ${money(i.unit_price_cents * i.quantity)}`),
     ...(shippingOf(o) > 0 ? [`Shipping  ${money(shippingOf(o))}`] : []),
+    ...(taxOf(o) > 0 ? [`${SALES_TAX_LABEL}  ${money(taxOf(o))}`] : []),
     `Total: ${money(o.total_cents)}`,
   ].join("\n");
 

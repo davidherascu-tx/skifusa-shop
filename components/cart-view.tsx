@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { itemKey, useCart } from "@/components/cart-provider";
-import { money, shippingFor } from "@/lib/format";
+import { money, shippingFor, taxFor, SALES_TAX_LABEL } from "@/lib/format";
 import { AddressFields } from "@/components/address-fields";
 import type { Address } from "@/lib/address";
 
@@ -16,6 +16,7 @@ export function CartView({ defaults }: { defaults: Partial<Address> | null }) {
   // Online events need no shipping address; any physical item does.
   const needsShipping = items.some((i) => !i.virtual);
   const shippingCost = shippingFor(needsShipping);
+  const tax = taxFor(total + shippingCost);
 
   async function placeOrder(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -114,9 +115,13 @@ export function CartView({ defaults }: { defaults: Partial<Address> | null }) {
               <span>Shipping</span>
               <span>{needsShipping ? money(shippingCost) : "Free"}</span>
             </div>
+            <div className="flex items-center justify-between text-sm text-stone-600">
+              <span>{SALES_TAX_LABEL}</span>
+              <span>{money(tax)}</span>
+            </div>
             <div className="flex items-center justify-between pt-2 text-lg font-semibold">
               <span>Total</span>
-              <span>{money(total + shippingCost)}</span>
+              <span>{money(total + shippingCost + tax)}</span>
             </div>
           </div>
           <p className="text-xs leading-relaxed text-muted">
