@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ORDER_STATUSES, requireAdmin } from "@/lib/admin";
-import { createAdminClient } from "@/lib/supabase/server";
+import { eq, and } from "drizzle-orm";
+import { categories, contact_messages, event_access, member_requests, orders, products, profiles } from "@/lib/db";
 import { restockOrder } from "@/lib/orders";
 import { notifyMemberDecision, notifyOrderStatus, sendContactReply, sendEventAccessEmails } from "@/lib/notify";
 import { zonedToUtc } from "@/lib/event";
@@ -18,7 +19,7 @@ const withParam = (path: string, key: string, value: string) =>
   `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
 
 export async function setOrderStatus(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const input = z.object({ id: z.uuid(), status: z.enum(ORDER_STATUSES) }).safeParse({
     id: formData.get("id"),
     status: formData.get("status"),
@@ -26,13 +27,13 @@ export async function setOrderStatus(formData: FormData) {
   const back = safeReturn(formData.get("returnTo"), "/admin/orders");
   if (!input.success) redirect(withParam(back, "error", "Invalid order update"));
 
-  const { data: before } = await supabase.from("orders").select("status").eq("id", input.data.id).maybeSingle();
-  const { data, error } = await supabase.from("orders").update({ status: input.data.status }).eq("id", input.data.id).select("id");
-  if (error || !data?.length) redirect(withParam(back, "error", "Could not update the order"));
+  const [before] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, input.data.id)).limit(1);
+  const updated = await db.update(orders).set({ status: input.data.status }).where(eq(orders.id, input.data.id)).returning({ id: orders.id }).catch(() => []);
+  if (!updated.length) redirect(withParam(back, "error", "Could not update the order"));
 
   // A paid order that is cancelled or refunded goes back into stock (shipped goods are not assumed returned).
   const restock = before?.status === "paid" && (input.data.status === "cancelled" || input.data.status === "refunded");
-  if (restock) await restockOrder(createAdminClient(), input.data.id);
+  if (restock) await restockOrder(input.data.id);
 
   if (before?.status !== input.data.status) await notifyOrderStatus(input.data.id, input.data.status);
 
@@ -41,7 +42,7 @@ export async function setOrderStatus(formData: FormData) {
 }
 
 export async function reviewMemberRequest(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const input = z.object({ id: z.uuid(), decision: z.enum(["approved", "rejected"]) }).safeParse({
     id: formData.get("id"),
     decision: formData.get("decision"),
@@ -49,9 +50,17 @@ export async function reviewMemberRequest(formData: FormData) {
   const back = safeReturn(formData.get("returnTo"), "/admin/members");
   if (!input.success) redirect(withParam(back, "error", "Invalid request"));
 
-  // A database trigger sets / clears profiles.is_member when status changes.
-  const { data, error } = await supabase.from("member_requests").update({ status: input.data.decision }).eq("id", input.data.id).select("id, user_id");
-  if (error || !data?.length) redirect(withParam(back, "error", "Could not update the request"));
+  const [before] = await db.select({ status: member_requests.status }).from(member_requests).where(eq(member_requests.id, input.data.id)).limit(1);
+  const data = await db
+    .update(member_requests)
+    .set({ status: input.data.decision, reviewed_at: new Date().toISOString() })
+    .where(eq(member_requests.id, input.data.id))
+    .returning({ id: member_requests.id, user_id: member_requests.user_id })
+    .catch(() => []);
+  if (!data.length) redirect(withParam(back, "error", "Could not update the request"));
+  // Approving makes the customer a member; changing an approved request back takes it away again.
+  if (input.data.decision === "approved") await db.update(profiles).set({ is_member: true }).where(eq(profiles.id, data[0].user_id));
+  else if (before?.status === "approved") await db.update(profiles).set({ is_member: false }).where(eq(profiles.id, data[0].user_id));
   await notifyMemberDecision(data[0].user_id, input.data.decision === "approved");
   revalidatePath("/admin", "layout");
   redirect(withParam(back, "saved", input.data.decision === "approved" ? "Member approved" : "Request rejected"));
@@ -64,7 +73,7 @@ const dollars = z
   .transform((v) => Math.round(parseFloat(v) * 100));
 
 export async function saveProduct(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const sale = String(formData.get("sale") ?? "").trim();
   const input = z
     .object({
@@ -84,17 +93,18 @@ export async function saveProduct(formData: FormData) {
   const back = safeReturn(formData.get("returnTo"), "/admin/stock");
   if (!input.success) redirect(withParam(back, "error", "Please check stock and price values"));
 
-  const { data, error } = await supabase
-    .from("products")
-    .update({
+  const data = await db
+    .update(products)
+    .set({
       stock: input.data.stock,
       price_cents: input.data.price,
       sale_price_cents: input.data.sale === "" ? null : input.data.sale,
       active: input.data.active,
     })
-    .eq("id", input.data.id)
-    .select("name");
-  if (error || !data?.length) redirect(withParam(back, "error", "Could not save the product"));
+    .where(eq(products.id, input.data.id))
+    .returning({ name: products.name })
+    .catch(() => []);
+  if (!data.length) redirect(withParam(back, "error", "Could not save the product"));
   revalidatePath("/admin", "layout");
   revalidatePath("/products");
   revalidatePath("/");
@@ -102,21 +112,21 @@ export async function saveProduct(formData: FormData) {
 }
 
 export async function setMessageHandled(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const input = z.object({ id: z.uuid(), handled: z.enum(["true", "false"]) }).safeParse({
     id: formData.get("id"),
     handled: formData.get("handled"),
   });
   const back = safeReturn(formData.get("returnTo"), "/admin/messages");
   if (!input.success) redirect(withParam(back, "error", "Invalid request"));
-  const { data, error } = await supabase.from("contact_messages").update({ handled: input.data.handled === "true" }).eq("id", input.data.id).select("id");
-  if (error || !data?.length) redirect(withParam(back, "error", "Could not update the message"));
+  const data = await db.update(contact_messages).set({ handled: input.data.handled === "true" }).where(eq(contact_messages.id, input.data.id)).returning({ id: contact_messages.id }).catch(() => []);
+  if (!data.length) redirect(withParam(back, "error", "Could not update the message"));
   revalidatePath("/admin", "layout");
   redirect(withParam(back, "saved", input.data.handled === "true" ? "Marked as handled" : "Reopened"));
 }
 
 export async function replyToMessage(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const input = z.object({ id: z.uuid(), reply: z.string().trim().min(2, "Please write a reply").max(5000) }).safeParse({
     id: formData.get("id"),
     reply: formData.get("reply"),
@@ -124,11 +134,11 @@ export async function replyToMessage(formData: FormData) {
   const back = safeReturn(formData.get("returnTo"), "/admin/messages");
   if (!input.success) redirect(withParam(back, "error", input.error.issues[0]?.message ?? "Invalid reply"));
 
-  const { data: msg } = await supabase
-    .from("contact_messages")
-    .select("id, name, email, topic, order_number, message")
-    .eq("id", input.data.id)
-    .maybeSingle();
+  const [msg] = await db
+    .select({ id: contact_messages.id, name: contact_messages.name, email: contact_messages.email, topic: contact_messages.topic, order_number: contact_messages.order_number, message: contact_messages.message })
+    .from(contact_messages)
+    .where(eq(contact_messages.id, input.data.id))
+    .limit(1);
   if (!msg) redirect(withParam(back, "error", "Message not found"));
 
   const sent = await sendContactReply({
@@ -141,12 +151,14 @@ export async function replyToMessage(formData: FormData) {
   });
   if (!sent) redirect(withParam(back, "error", "The reply could not be sent. Check that email (Resend) is set up, then try again."));
 
-  const { error } = await supabase
-    .from("contact_messages")
-    .update({ reply: input.data.reply, replied_at: new Date().toISOString(), handled: true })
-    .eq("id", msg.id);
+  let saveFailed = false;
+  try {
+    await db.update(contact_messages).set({ reply: input.data.reply, replied_at: new Date().toISOString(), handled: true }).where(eq(contact_messages.id, msg.id));
+  } catch {
+    saveFailed = true;
+  }
   revalidatePath("/admin", "layout");
-  redirect(withParam(back, "saved", error ? "Reply sent (could not save a copy: run migration 0008)" : `Reply sent to ${msg.email}`));
+  redirect(withParam(back, "saved", saveFailed ? "Reply sent (but a copy could not be saved)" : `Reply sent to ${msg.email}`));
 }
 
 // ---------- live online events (virtual products) ----------
@@ -169,7 +181,7 @@ const eventSchema = z.object({
 });
 
 export async function saveEvent(formData: FormData) {
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const back = safeReturn(formData.get("returnTo"), "/admin/events");
   const input = eventSchema.safeParse({
     id: formData.get("id") || undefined,
@@ -204,24 +216,28 @@ export async function saveEvent(formData: FormData) {
 
   let productId = e.id;
   if (productId) {
-    const { data, error } = await supabase.from("products").update(fields).eq("id", productId).eq("kind", "virtual").select("id");
-    if (error || !data?.length) redirect(withParam(back, "error", "Could not save the event"));
+    const data = await db.update(products).set(fields).where(and(eq(products.id, productId), eq(products.kind, "virtual"))).returning({ id: products.id }).catch(() => []);
+    if (!data.length) redirect(withParam(back, "error", "Could not save the event"));
   } else {
-    const { data: cat } = await supabase.from("categories").select("id").eq("slug", "seminars").maybeSingle();
+    const [cat] = await db.select({ id: categories.id }).from(categories).where(eq(categories.slug, "seminars")).limit(1);
     const slug = `${slugify(e.name)}-${e.start.slice(0, 10)}-${Math.random().toString(36).slice(2, 6)}`;
-    const { data, error } = await supabase
-      .from("products")
-      .insert({ ...fields, slug, category_id: cat?.id ?? null, image_url: "/seminar_live_training.webp" })
-      .select("id")
-      .single();
-    if (error || !data) redirect(withParam(back, "error", "Could not create the event"));
+    const [data] = await db
+      .insert(products)
+      .values({ ...fields, slug, category_id: cat?.id ?? null, image_url: "/seminar_live_training.webp" })
+      .returning({ id: products.id })
+      .catch(() => []);
+    if (!data) redirect(withParam(back, "error", "Could not create the event"));
     productId = data.id;
   }
 
-  const { error: accessError } = await supabase
-    .from("event_access")
-    .upsert({ product_id: productId, join_url: e.join_url || null, join_info: e.join_info || null }, { onConflict: "product_id" });
-  if (accessError) redirect(withParam(back, "error", "Event saved, but the Zoom details could not be saved"));
+  try {
+    await db
+      .insert(event_access)
+      .values({ product_id: productId, join_url: e.join_url || null, join_info: e.join_info || null })
+      .onConflictDoUpdate({ target: event_access.product_id, set: { join_url: e.join_url || null, join_info: e.join_info || null } });
+  } catch {
+    redirect(withParam(back, "error", "Event saved, but the Zoom details could not be saved"));
+  }
 
   revalidatePath("/admin", "layout");
   revalidatePath("/products");

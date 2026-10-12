@@ -1,18 +1,20 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { eq } from "drizzle-orm";
+import { getDb, profiles } from "@/lib/db";
+import { getUser } from "@/lib/session";
 
 /**
  * Guard for every admin page AND every admin server action.
  * Not logged in -> login. Logged in but not an admin -> 404 (the admin area is not advertised).
- * Database writes then use the admin's own session, so Postgres RLS enforces it a second time.
+ * There is no database-level row security any more, so every admin entry point must call this first.
  */
 export async function requireAdmin() {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) redirect("/login?next=/admin");
-  const { data: profile } = await supabase.from("profiles").select("is_admin").eq("id", auth.user.id).single();
+  const user = await getUser();
+  if (!user) redirect("/login?next=/admin");
+  const db = getDb();
+  const [profile] = await db.select({ is_admin: profiles.is_admin }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
   if (!profile?.is_admin) notFound();
-  return { supabase, user: auth.user };
+  return { db, user };
 }
 
 export const ORDER_STATUSES = ["pending", "paid", "shipped", "cancelled", "refunded"] as const;

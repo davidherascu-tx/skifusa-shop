@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { desc } from "drizzle-orm";
+import { orders as ordersTable } from "@/lib/db";
 import { ORDER_STATUSES, orderStatusStyle, requireAdmin, type OrderStatus, type Shipping } from "@/lib/admin";
 import { setOrderStatus } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
@@ -24,15 +26,14 @@ export default async function AdminOrders({
   searchParams: Promise<{ status?: string; saved?: string; error?: string }>;
 }) {
   const { status, saved, error } = await searchParams;
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
 
-  const { data } = await supabase
-    .from("orders")
-    .select("id, status, total_cents, created_at, email, payment_ref, cancel_requested_at, cancel_reason, shipping, order_items(name, quantity, size, unit_price_cents)")
-    .order("created_at", { ascending: false })
-    .limit(500)
-    .overrideTypes<Order[]>();
-  const all = data ?? [];
+  const all = (await db.query.orders.findMany({
+    columns: { id: true, status: true, total_cents: true, created_at: true, email: true, payment_ref: true, cancel_requested_at: true, cancel_reason: true, shipping: true },
+    with: { order_items: { columns: { name: true, quantity: true, size: true, unit_price_cents: true } } },
+    orderBy: desc(ordersTable.created_at),
+    limit: 500,
+  })) as Order[];
   const isCancelTab = status === "cancel-request";
   const openCancel = (o: Order) => !!o.cancel_requested_at && (o.status === "pending" || o.status === "paid");
   const filter = ORDER_STATUSES.find((s) => s === status);

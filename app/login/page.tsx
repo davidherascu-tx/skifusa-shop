@@ -1,19 +1,26 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { APIError } from "better-auth/api";
+import { getAuth } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Log in" };
 
 async function login(formData: FormData) {
   "use server";
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
-    email: String(formData.get("email")),
-    password: String(formData.get("password")),
-  });
+  let error: string | null = null;
+  try {
+    await getAuth().api.signInEmail({
+      body: { email: String(formData.get("email")), password: String(formData.get("password")) },
+      headers: await headers(),
+    });
+  } catch (e) {
+    if (!(e instanceof APIError)) throw e;
+    error = e.message || "Could not log in";
+  }
   const next = String(formData.get("next") ?? "/account");
-  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/login?error=${encodeURIComponent(error)}`);
   // only allow same-site relative redirects
   redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/account");
 }

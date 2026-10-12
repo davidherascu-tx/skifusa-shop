@@ -3,7 +3,7 @@ import { z } from "zod";
 // ---- signing helpers (Web Crypto, works on Cloudflare Workers) ----
 const enc = new TextEncoder();
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
-const secret = () => process.env.CONTACT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "dev-only-secret";
+const secret = () => process.env.CONTACT_SECRET || process.env.BETTER_AUTH_SECRET || "dev-only-secret";
 
 async function hmac(data: string) {
   const key = await crypto.subtle.importKey("raw", enc.encode(secret()), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

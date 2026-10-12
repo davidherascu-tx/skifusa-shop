@@ -279,3 +279,30 @@ ${e.join_info ?? ""}
 Please do not share the meeting link, ID or password.`,
   };
 }
+
+// ---- account emails (sent by Better Auth) ----
+export function verifyEmail(url: string): Out {
+  return {
+    subject: "Confirm your S.K.I.F.-USA Shop account",
+    html: layout({
+      preheader: "One click to confirm your email address.",
+      title: "Confirm your email",
+      bodyHtml: p("Thanks for creating an account. Please confirm your email address to finish signing up."),
+      cta: { label: "Confirm my email", href: url },
+    }),
+    text: `Confirm your email address to finish creating your S.K.I.F.-USA Shop account:\n${url}\n`,
+  };
+}
+
+export function resetPasswordEmail(url: string): Out {
+  return {
+    subject: "Reset your S.K.I.F.-USA Shop password",
+    html: layout({
+      preheader: "Choose a new password.",
+      title: "Reset your password",
+      bodyHtml: p("We received a request to reset your password. If it was not you, you can ignore this email."),
+      cta: { label: "Choose a new password", href: url },
+    }),
+    text: `Reset your S.K.I.F.-USA Shop password:\n${url}\n\nIf you did not ask for this, ignore this email.\n`,
+  };
+}

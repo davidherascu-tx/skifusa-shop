@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { and, eq } from "drizzle-orm";
+import { getDb, orders } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { PayPalButtons } from "@/components/paypal-buttons";
 import { isSandbox, paypalConfigured } from "@/lib/paypal";
 import { money, shippingOf, taxOf, SALES_TAX_LABEL } from "@/lib/format";
@@ -20,16 +22,15 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) redirect(`/login?next=/pay/${id}`);
+  const user = await getUser();
+  if (!user) redirect(`/login?next=/pay/${id}`);
 
-  // RLS: only the owner can read this order.
-  const { data: order } = await supabase
-    .from("orders")
-    .select("id, status, total_cents, tax_cents, order_items(name, quantity, size, unit_price_cents)")
-    .eq("id", id)
-    .maybeSingle<Order>();
+  // Only the owner can read this order.
+  const order = (await getDb().query.orders.findFirst({
+    columns: { id: true, status: true, total_cents: true, tax_cents: true },
+    with: { order_items: { columns: { name: true, quantity: true, size: true, unit_price_cents: true } } },
+    where: and(eq(orders.id, id), eq(orders.user_id, user.id)),
+  })) as Order | undefined;
   if (!order) notFound();
 
   const configured = paypalConfigured();

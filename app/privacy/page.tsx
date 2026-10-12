@@ -51,7 +51,7 @@ export default function Privacy() {
         <p>We do not sell your personal information and we do not share it for advertising. We use these service providers, who only process it for us:</p>
         <Bullets
           items={[
-            "Supabase: database, accounts and sign-in.",
+            "Neon: database and accounts (sign-in).",
             "Cloudflare: website hosting, security and the Turnstile spam check.",
             "PayPal: payments.",
             "Resend: sending our emails.",

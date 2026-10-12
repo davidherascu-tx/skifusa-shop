@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { event_access, order_items, orders, products as productsTable, profiles } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 import { emailEventAccess, saveEvent } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
@@ -83,47 +85,49 @@ export default async function AdminEvents({
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
   const { saved, error } = await searchParams;
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
 
-  const { data: events, error: loadError } = await supabase
-    .from("products")
-    .select("id, slug, name, description, price_cents, stock, active, members_only, event_start, event_minutes")
-    .eq("kind", "virtual")
-    .order("event_start", { ascending: false })
-    .overrideTypes<Ev[]>();
+  const events = (await db
+    .select({
+      id: productsTable.id,
+      slug: productsTable.slug,
+      name: productsTable.name,
+      description: productsTable.description,
+      price_cents: productsTable.price_cents,
+      stock: productsTable.stock,
+      active: productsTable.active,
+      members_only: productsTable.members_only,
+      event_start: productsTable.event_start,
+      event_minutes: productsTable.event_minutes,
+    })
+    .from(productsTable)
+    .where(eq(productsTable.kind, "virtual"))
+    .orderBy(desc(productsTable.event_start))) as Ev[];
 
-  const ids = (events ?? []).map((e) => e.id);
-  const { data: accessRows } = ids.length
-    ? await supabase.from("event_access").select("product_id, join_url, join_info, details_emailed_at").in("product_id", ids).overrideTypes<Access[]>()
-    : { data: [] as Access[] };
-  const accessById = new Map((accessRows ?? []).map((a) => [a.product_id, a]));
+  const ids = events.map((e) => e.id);
+  const accessRows = ids.length ? ((await db.select().from(event_access).where(inArray(event_access.product_id, ids))) as Access[]) : [];
+  const accessById = new Map(accessRows.map((a) => [a.product_id, a]));
 
   // Paid attendees per event.
   const attendees = new Map<string, Attendee[]>();
-  for (const e of events ?? []) {
-    const { data: rows } = await supabase
-      .from("order_items")
-      .select("orders!inner(email, status, user_id, created_at)")
-      .eq("product_id", e.id)
-      .in("orders.status", ["paid", "shipped"]);
-    const orders = (rows ?? []).map((r) => (r as unknown as { orders: { email: string | null; user_id: string | null; created_at: string } }).orders);
-    const userIds = orders.map((o) => o.user_id).filter((x): x is string => !!x);
-    const { data: profiles } = userIds.length ? await supabase.from("profiles").select("id, full_name").in("id", userIds) : { data: [] };
-    const names = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+  for (const e of events) {
+    const rows = await db
+      .select({ email: orders.email, user_id: orders.user_id, created_at: orders.created_at })
+      .from(order_items)
+      .innerJoin(orders, eq(orders.id, order_items.order_id))
+      .where(and(eq(order_items.product_id, e.id), inArray(orders.status, ["paid", "shipped"])));
+    const userIds = rows.map((o) => o.user_id).filter((x): x is string => !!x);
+    const profileRows = userIds.length ? await db.select({ id: profiles.id, full_name: profiles.full_name }).from(profiles).where(inArray(profiles.id, userIds)) : [];
+    const names = new Map(profileRows.map((p) => [p.id, p.full_name]));
     attendees.set(
       e.id,
-      orders.map((o) => ({ email: o.email, name: (o.user_id && names.get(o.user_id)) || "(no name)", ordered: o.created_at })),
+      rows.map((o) => ({ email: o.email, name: (o.user_id && names.get(o.user_id)) || "(no name)", ordered: o.created_at })),
     );
   }
 
   return (
     <div className="mt-8">
       <Notice saved={saved} error={error} />
-      {loadError && (
-        <p role="alert" className="mt-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-          Events are not set up yet. Run <code>supabase/migrations/0006_virtual_products.sql</code> in the Supabase SQL Editor.
-        </p>
-      )}
 
       <details className="mt-6 rounded-2xl border border-line p-5" open={!events?.length}>
         <summary className="cursor-pointer text-lg font-semibold">+ Create a new event</summary>

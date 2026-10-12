@@ -1,14 +1,8 @@
 import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
-const nextConfig: NextConfig = {
-  images: {
-    remotePatterns: [
-      // Supabase Storage public bucket "products"
-      { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
-    ],
-  },
-};
+// Product images are served from /public, so no remote image hosts are needed.
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
 

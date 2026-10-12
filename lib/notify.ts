@@ -1,17 +1,18 @@
-import { createAdminClient } from "@/lib/supabase/server";
+import { and, eq, inArray } from "drizzle-orm";
+import { event_access, getDb, order_items, orders, products, user } from "@/lib/db";
 import { adminRecipients, emailConfigured, sendEmail } from "@/lib/email";
 import * as t from "@/lib/email-templates";
 
 // Every function here is safe to call anywhere: it never throws and does nothing until Resend is configured.
 
 async function loadOrder(orderId: string): Promise<t.EmailOrder | null> {
-  const { data } = await createAdminClient()
-    .from("orders")
-    .select("id, total_cents, tax_cents, email, shipping, cancel_reason, order_items(name, quantity, size, unit_price_cents, products(*))")
-    .eq("id", orderId)
-    .maybeSingle();
+  const data = await getDb().query.orders.findFirst({
+    columns: { id: true, total_cents: true, tax_cents: true, email: true, shipping: true, cancel_reason: true },
+    where: eq(orders.id, orderId),
+    with: { order_items: { columns: { name: true, quantity: true, size: true, unit_price_cents: true }, with: { products: { columns: { kind: true } } } } },
+  });
   if (!data) return null;
-  const virtual = ((data.order_items ?? []) as { products?: { kind?: string } | null }[]).some((i) => i.products?.kind === "virtual");
+  const virtual = data.order_items.some((i) => i.products?.kind === "virtual");
   return { ...(data as unknown as t.EmailOrder), virtual };
 }
 
@@ -69,9 +70,8 @@ export const notifyMemberRequest = (r: { name: string; email: string; member_num
 
 export const notifyMemberDecision = (userId: string, approved: boolean) =>
   safely("memberDecision", async () => {
-    const { data } = await createAdminClient().auth.admin.getUserById(userId);
-    const to = data.user?.email;
-    if (to) await sendEmail({ to, ...t.memberDecision(approved) });
+    const [u] = await getDb().select({ email: user.email }).from(user).where(eq(user.id, userId)).limit(1);
+    if (u?.email) await sendEmail({ to: u.email, ...t.memberDecision(approved) });
   });
 
 /** Contact form -> the shop owner. Reply-To is the visitor, so "Reply" in the inbox answers them. */
@@ -91,20 +91,20 @@ export async function sendContactReply(r: { to: string; name: string; topic: str
 /** Emails the Zoom link to everyone who has PAID for the event. Returns how many emails were sent. */
 export async function sendEventAccessEmails(productId: string): Promise<{ sent: number; total: number; error?: string }> {
   if (!emailConfigured()) return { sent: 0, total: 0, error: "Email is not set up (Resend)." };
-  const admin = createAdminClient();
-  const [{ data: product }, { data: access }] = await Promise.all([
-    admin.from("products").select("name, event_start, event_minutes").eq("id", productId).single(),
-    admin.from("event_access").select("join_url, join_info").eq("product_id", productId).maybeSingle(),
+  const db = getDb();
+  const [[product], [access]] = await Promise.all([
+    db.select({ name: products.name, event_start: products.event_start, event_minutes: products.event_minutes }).from(products).where(eq(products.id, productId)).limit(1),
+    db.select({ join_url: event_access.join_url, join_info: event_access.join_info }).from(event_access).where(eq(event_access.product_id, productId)).limit(1),
   ]);
   if (!product?.event_start) return { sent: 0, total: 0, error: "This event has no date yet." };
   if (!access?.join_url) return { sent: 0, total: 0, error: "Add the Zoom link first." };
 
-  const { data: rows } = await admin
-    .from("order_items")
-    .select("orders!inner(email, status)")
-    .eq("product_id", productId)
-    .in("orders.status", ["paid", "shipped"]);
-  const emails = [...new Set((rows ?? []).map((r) => (r as unknown as { orders: { email: string | null } }).orders.email).filter((e): e is string => !!e))];
+  const rows = await db
+    .select({ email: orders.email })
+    .from(order_items)
+    .innerJoin(orders, eq(orders.id, order_items.order_id))
+    .where(and(eq(order_items.product_id, productId), inArray(orders.status, ["paid", "shipped"])));
+  const emails = [...new Set(rows.map((r) => r.email).filter((e): e is string => !!e))];
 
   let sent = 0;
   for (const to of emails) {
@@ -114,6 +114,6 @@ export async function sendEventAccessEmails(productId: string): Promise<{ sent: 
     });
     if (ok) sent++;
   }
-  if (sent > 0) await admin.from("event_access").update({ details_emailed_at: new Date().toISOString() }).eq("product_id", productId);
+  if (sent > 0) await db.update(event_access).set({ details_emailed_at: new Date().toISOString() }).where(eq(event_access.product_id, productId));
   return { sent, total: emails.length };
 }

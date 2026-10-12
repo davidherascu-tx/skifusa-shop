@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { desc } from "drizzle-orm";
+import { contact_messages, orders as ordersTable } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 import { replyToMessage, setMessageHandled } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
@@ -24,21 +26,15 @@ export default async function AdminMessages({
   searchParams: Promise<{ show?: string; saved?: string; error?: string }>;
 }) {
   const { show, saved, error } = await searchParams;
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const tab = show === "handled" ? "handled" : "open";
 
-  const { data, error: loadError } = await supabase
-    .from("contact_messages")
-    .select("id, created_at, name, email, phone, topic, order_number, message, reply, replied_at, handled")
-    .order("created_at", { ascending: false })
-    .limit(300)
-    .overrideTypes<Msg[]>();
-  const all = data ?? [];
+  const all = (await db.select().from(contact_messages).orderBy(desc(contact_messages.created_at)).limit(300)) as Msg[];
   const rows = all.filter((m) => m.handled === (tab === "handled"));
 
   // Match "#C03149FD" to a real order (the shown number is the first 8 characters of the order id).
-  const { data: orders } = await supabase.from("orders").select("id").order("created_at", { ascending: false }).limit(1000);
-  const orderByNumber = new Map((orders ?? []).map((o) => [o.id.slice(0, 8).toUpperCase(), o.id]));
+  const orders = await db.select({ id: ordersTable.id }).from(ordersTable).orderBy(desc(ordersTable.created_at)).limit(1000);
+  const orderByNumber = new Map(orders.map((o) => [o.id.slice(0, 8).toUpperCase(), o.id]));
 
   const returnTo = `/admin/messages${tab === "handled" ? "?show=handled" : ""}`;
 
@@ -54,11 +50,6 @@ export default async function AdminMessages({
       </div>
 
       <Notice saved={saved} error={error} />
-      {loadError && (
-        <p role="alert" className="mt-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-          The messages table is missing. Run <code>supabase/migrations/0005_contact_messages.sql</code> in the Supabase SQL Editor.
-        </p>
-      )}
 
       {rows.length === 0 ? (
         <p className="mt-10 rounded-2xl bg-mist p-10 text-center text-muted">No {tab} messages.</p>

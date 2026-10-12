@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { and, eq, inArray } from "drizzle-orm";
+import { getDb, order_items, orders, products as productsTable, profiles } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { effectivePrice, shippingFor, taxFor } from "@/lib/format";
 import { addressSchema } from "@/lib/address";
 import { isVirtual, registrationClosed } from "@/lib/event";
@@ -16,23 +18,18 @@ const fail = (error: string, status: number) => NextResponse.json({ error }, { s
 
 /** Places an order (status "pending", no payment yet). Login required. */
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const user = auth.user;
+  const user = await getUser();
   if (!user) return fail("Please log in to place an order", 401);
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return fail("Invalid order details", 400);
 
   // Prices always come from the database, never from the client.
-  const admin = createAdminClient();
-  const { data: products, error } = await admin
-    .from("products")
-    .select("*")
-    .in("id", parsed.data.items.map((i) => i.id));
-  if (error || !products) return fail("Could not load products", 500);
+  const db = getDb();
+  const products = await db.select().from(productsTable).where(inArray(productsTable.id, parsed.data.items.map((i) => i.id))).catch(() => null);
+  if (!products) return fail("Could not load products", 500);
 
-  const { data: profile } = await supabase.from("profiles").select("is_member").eq("id", user.id).single();
+  const [profile] = await db.select({ is_member: profiles.is_member }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
   const isMember = !!profile?.is_member;
 
   const lines = [];
@@ -46,14 +43,13 @@ export async function POST(request: Request) {
       if (registrationClosed(p)) return fail(`Registration for ${p.name} is closed.`, 409);
       if (item.qty !== 1) return fail("Each member can register for one seat per order.", 400);
       // One registration per member.
-      const { data: already } = await admin
-        .from("order_items")
-        .select("order_id, orders!inner(status, user_id)")
-        .eq("product_id", p.id)
-        .eq("orders.user_id", user.id)
-        .in("orders.status", ["paid", "shipped"])
+      const already = await db
+        .select({ order_id: order_items.order_id })
+        .from(order_items)
+        .innerJoin(orders, eq(orders.id, order_items.order_id))
+        .where(and(eq(order_items.product_id, p.id), eq(orders.user_id, user.id), inArray(orders.status, ["paid", "shipped"])))
         .limit(1);
-      if (already?.length) return fail(`You are already registered for ${p.name}. Find it under My account.`, 409);
+      if (already.length) return fail(`You are already registered for ${p.name}. Find it under My account.`, 409);
       if (p.stock < 1) return fail(`${p.name} is fully booked.`, 409);
     }
 
@@ -75,31 +71,32 @@ export async function POST(request: Request) {
   const shippingCents = shippingFor(shipping !== null);
   const tax = taxFor(subtotal + shippingCents);
 
-  const { data: order, error: orderErr } = await admin
-    .from("orders")
-    .insert({
+  const [order] = await db
+    .insert(orders)
+    .values({
       user_id: user.id,
       email: user.email,
       total_cents: subtotal + shippingCents + tax,
       tax_cents: tax,
       shipping,
     })
-    .select("id")
-    .single();
-  if (orderErr || !order) return fail("Could not create order", 500);
+    .returning({ id: orders.id })
+    .catch(() => []);
+  if (!order) return fail("Could not create order", 500);
 
-  const { error: itemsErr } = await admin.from("order_items").insert(
-    lines.map((l) => ({
-      order_id: order.id,
-      product_id: l.product.id,
-      name: l.product.name,
-      unit_price_cents: l.unit,
-      quantity: l.qty,
-      size: l.size,
-    })),
-  );
-  if (itemsErr) {
-    await admin.from("orders").delete().eq("id", order.id);
+  try {
+    await db.insert(order_items).values(
+      lines.map((l) => ({
+        order_id: order.id,
+        product_id: l.product.id,
+        name: l.product.name,
+        unit_price_cents: l.unit,
+        quantity: l.qty,
+        size: l.size,
+      })),
+    );
+  } catch {
+    await db.delete(orders).where(eq(orders.id, order.id)).catch(() => {});
     return fail("Could not save order items", 500);
   }
 
