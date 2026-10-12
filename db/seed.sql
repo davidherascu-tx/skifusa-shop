@@ -104,7 +104,7 @@ The virtual training program with SKIF Japan Headquarters is back! We invite all
 Questions: skifusa@gmail.com | Ruben Fung: 832-513-0058 | skifusa.org
 
 Train together. Learn together. Grow together.$desc$,
-  c.id, 2500, '/seminar_live_training.webp', 50, true, 'virtual', '2026-12-05T23:30:00Z', 60
+  c.id, 2500, '/daizo_kanazawa_12_05_2026.webp', 50, true, 'virtual', '2026-12-05T23:30:00Z', 60
 from public.categories c where c.slug = 'seminars'
 on conflict (slug) do nothing;
 

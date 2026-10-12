@@ -10,7 +10,7 @@ import { money } from "@/lib/format";
 import { AddressFields } from "@/components/address-fields";
 import { Notice } from "@/components/admin/notice";
 import type { Address } from "@/lib/address";
-import { requestCancellation, saveAddress, updateOrderAddress } from "./actions";
+import { changePassword, requestCancellation, saveAddress, updateOrderAddress } from "./actions";
 import { notifyMemberRequest } from "@/lib/notify";
 
 export const metadata: Metadata = { title: "My account" };
@@ -253,6 +253,17 @@ export default async function Account({ searchParams }: { searchParams: Promise<
         <form action={saveAddress} className="mt-5 grid max-w-xl gap-3">
           <AddressFields defaults={profile?.address as Address | null} />
           <button className="btn btn-dark w-fit !px-8">Save address</button>
+        </form>
+      </section>
+
+      <section id="password" className="mt-10 scroll-mt-32 rounded-3xl border border-line p-7">
+        <h2 className="display text-3xl">Change password</h2>
+        <p className="mt-2 max-w-xl text-sm text-stone-600">Choose a new password. You will stay signed in here; other devices are signed out.</p>
+        <form action={changePassword} className="mt-5 grid max-w-md gap-3">
+          <input name="current" type="password" required placeholder="Current password" autoComplete="current-password" className="input" />
+          <input name="password" type="password" required minLength={8} placeholder="New password (min. 8 characters)" autoComplete="new-password" className="input" />
+          <input name="confirm" type="password" required minLength={8} placeholder="Repeat new password" autoComplete="new-password" className="input" />
+          <button className="btn btn-dark w-fit !px-8">Change password</button>
         </form>
       </section>
     </div>

@@ -1,6 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { APIError } from "better-auth/api";
+import { getAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
@@ -16,6 +19,28 @@ async function currentUser() {
   const user = await getUser();
   if (!user) redirect("/login?next=/account");
   return { db: getDb(), user };
+}
+
+/** Changes the signed-in user's password (customers and admins alike). */
+export async function changePassword(formData: FormData) {
+  await currentUser();
+  const current = String(formData.get("current") ?? "");
+  const next = String(formData.get("password") ?? "");
+  if (!current) go("error", "Please enter your current password.", "#password");
+  if (next.length < 8) go("error", "The new password must be at least 8 characters.", "#password");
+  if (next !== String(formData.get("confirm") ?? "")) go("error", "The two new passwords do not match.", "#password");
+  let failure: string | null = null;
+  try {
+    await getAuth().api.changePassword({
+      body: { currentPassword: current, newPassword: next, revokeOtherSessions: true },
+      headers: await headers(),
+    });
+  } catch (e) {
+    if (!(e instanceof APIError)) throw e;
+    failure = /invalid/i.test(e.message) ? "Your current password is not correct." : "Could not change the password. Please try again.";
+  }
+  if (failure) go("error", failure, "#password");
+  go("saved", "Password changed. Other devices were signed out.", "#password");
 }
 
 /** Saves the default shipping address on the customer's profile (used to prefill the cart). */

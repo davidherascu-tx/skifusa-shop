@@ -16,6 +16,8 @@ function create() {
       minPasswordLength: 8,
       // Like before: customers must confirm their email, but only once email sending (Resend) is set up.
       requireEmailVerification: emailConfigured(),
+      resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
+      revokeSessionsOnPasswordReset: true, // signs out every device after a reset
       sendResetPassword: async ({ user: u, url }) => {
         await sendEmail({ to: u.email, ...resetPasswordEmail(url) });
       },
