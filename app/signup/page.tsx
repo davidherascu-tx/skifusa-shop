@@ -1,24 +1,31 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { APIError } from "better-auth/api";
+import { getAuth } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Create account" };
 
 async function signup(formData: FormData) {
   "use server";
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email: String(formData.get("email")),
-    password: String(formData.get("password")),
-    options: {
-      data: { full_name: String(formData.get("full_name") ?? "") },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/account`,
-    },
-  });
-  if (error) redirect(`/signup?error=${encodeURIComponent(error.message)}`);
+  let result: Awaited<ReturnType<ReturnType<typeof getAuth>["api"]["signUpEmail"]>>;
+  try {
+    result = await getAuth().api.signUpEmail({
+      body: {
+        name: String(formData.get("full_name") ?? "").trim() || "Customer",
+        email: String(formData.get("email")),
+        password: String(formData.get("password")),
+        callbackURL: "/account",
+      },
+      headers: await headers(),
+    });
+  } catch (e) {
+    if (!(e instanceof APIError)) throw e;
+    redirect(`/signup?error=${encodeURIComponent(e.message || "Could not create the account")}`);
+  }
   // With email confirmation on, there is no session yet.
-  redirect(data.session ? "/account" : "/signup?sent=1");
+  redirect(result.token ? "/account" : "/signup?sent=1");
 }
 
 export default async function Signup({ searchParams }: { searchParams: Promise<{ error?: string; sent?: string }> }) {

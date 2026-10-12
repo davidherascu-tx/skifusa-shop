@@ -6,7 +6,7 @@ import { CartProvider } from "@/components/cart-provider";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { ScrollToTop } from "@/components/scroll-to-top";
-import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/session";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const display = Barlow_Condensed({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-display" });
@@ -20,8 +20,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const user = await getUser();
 
   return (
     <html lang="en" className={`${inter.variable} ${display.variable} h-full`}>
@@ -31,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Suspense>
             <ScrollToTop />
           </Suspense>
-          <Header signedIn={!!data?.claims} />
+          <Header signedIn={!!user} />
           <main className="flex-1">{children}</main>
           <Footer />
         </CartProvider>

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { categories as categoriesTable, getDb, products as productsTable } from "@/lib/db";
 import { ProductCard } from "@/components/product-card";
 import { BadgeCheckIcon, BoxIcon, HeadsetIcon, LockIcon, TruckIcon } from "@/components/icons";
 import type { Product } from "@/lib/format";
@@ -15,26 +16,23 @@ const perks = [
 ];
 
 export default async function Home() {
-  const supabase = await createClient();
-  const [{ data: categories }, { data: products }, { data: upcoming }] = await Promise.all([
-    supabase.from("categories").select("slug, name").order("sort_order"),
-    supabase
-      .from("products")
-      .select("*, categories(slug, name)")
-      .eq("active", true)
-      .order("created_at", { ascending: false })
-      .limit(8)
-      .overrideTypes<Product[]>(),
-    // The next live online event (if any). Ignored gracefully if events are not set up.
-    supabase
-      .from("products")
-      .select("*, categories(slug, name)")
-      .eq("kind", "virtual")
-      .eq("active", true)
-      .gt("event_start", new Date().toISOString())
-      .order("event_start", { ascending: true })
-      .limit(1)
-      .overrideTypes<Product[]>(),
+  const db = getDb();
+  const withCategory = { categories: { columns: { slug: true, name: true } } } as const;
+  const [categories, products, upcoming] = await Promise.all([
+    db.select({ slug: categoriesTable.slug, name: categoriesTable.name }).from(categoriesTable).orderBy(asc(categoriesTable.sort_order)),
+    db.query.products.findMany({
+      with: withCategory,
+      where: eq(productsTable.active, true),
+      orderBy: desc(productsTable.created_at),
+      limit: 8,
+    }) as Promise<Product[]>,
+    // The next live online event (if any).
+    db.query.products.findMany({
+      with: withCategory,
+      where: and(eq(productsTable.kind, "virtual"), eq(productsTable.active, true), gt(productsTable.event_start, new Date().toISOString())),
+      orderBy: asc(productsTable.event_start),
+      limit: 1,
+    }) as Promise<Product[]>,
   ]);
 
   const bySlug = (s: string) => categories?.find((c) => c.slug === s);

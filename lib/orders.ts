@@ -1,58 +1,40 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, order_items, orders, products } from "@/lib/db";
+
+type Db = ReturnType<typeof getDb>;
+
+/** Total quantity per product in an order. */
+async function quantities(db: Db, orderId: string) {
+  const items = await db.select({ product_id: order_items.product_id, quantity: order_items.quantity }).from(order_items).where(eq(order_items.order_id, orderId));
+  const perProduct = new Map<string, number>();
+  for (const i of items) if (i.product_id) perProduct.set(i.product_id, (perProduct.get(i.product_id) ?? 0) + i.quantity);
+  return perProduct;
+}
 
 /**
  * Marks an order paid and takes the quantities out of stock.
  * Safe to call twice: only the call that flips "pending" -> "paid" touches stock.
- * Pass the service-role client.
  */
-export async function markOrderPaid(admin: SupabaseClient, orderId: string, paymentRef: string) {
-  const { data: flipped } = await admin
-    .from("orders")
-    .update({ status: "paid", payment_ref: paymentRef })
-    .eq("id", orderId)
-    .eq("status", "pending")
-    .select("id");
-  if (!flipped?.length) return false; // already processed
+export async function markOrderPaid(orderId: string, paymentRef: string) {
+  const db = getDb();
+  const flipped = await db
+    .update(orders)
+    .set({ status: "paid", payment_ref: paymentRef })
+    .where(and(eq(orders.id, orderId), eq(orders.status, "pending")))
+    .returning({ id: orders.id });
+  if (!flipped.length) return false; // already processed
 
-  const { data: items } = await admin.from("order_items").select("product_id, quantity").eq("order_id", orderId);
-  const perProduct = new Map<string, number>();
-  for (const i of items ?? []) {
-    if (i.product_id) perProduct.set(i.product_id, (perProduct.get(i.product_id) ?? 0) + i.quantity);
-  }
-
-  for (const [productId, qty] of perProduct) {
-    // Optimistic update: only write if nobody changed the stock in between; retry a few times.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const { data: p } = await admin.from("products").select("stock").eq("id", productId).single();
-      if (!p) break;
-      const { data: ok } = await admin
-        .from("products")
-        .update({ stock: Math.max(p.stock - qty, 0) })
-        .eq("id", productId)
-        .eq("stock", p.stock)
-        .select("id");
-      if (ok?.length) break;
-    }
+  for (const [productId, qty] of await quantities(db, orderId)) {
+    // Atomic in the database, so two orders paid at once cannot overwrite each other.
+    await db.update(products).set({ stock: sql`greatest(${products.stock} - ${qty}, 0)` }).where(eq(products.id, productId));
   }
   return true;
 }
 
-/**
- * Puts an order's quantities back into stock (used when a PAID order is cancelled or refunded).
- * Pass the service-role client.
- */
-export async function restockOrder(admin: SupabaseClient, orderId: string) {
-  const { data: items } = await admin.from("order_items").select("product_id, quantity").eq("order_id", orderId);
-  const perProduct = new Map<string, number>();
-  for (const i of items ?? []) {
-    if (i.product_id) perProduct.set(i.product_id, (perProduct.get(i.product_id) ?? 0) + i.quantity);
-  }
-  for (const [productId, qty] of perProduct) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const { data: p } = await admin.from("products").select("stock").eq("id", productId).single();
-      if (!p) break;
-      const { data: ok } = await admin.from("products").update({ stock: p.stock + qty }).eq("id", productId).eq("stock", p.stock).select("id");
-      if (ok?.length) break;
-    }
+/** Puts an order's quantities back into stock (used when a PAID order is cancelled or refunded). */
+export async function restockOrder(orderId: string) {
+  const db = getDb();
+  for (const [productId, qty] of await quantities(db, orderId)) {
+    await db.update(products).set({ stock: sql`${products.stock} + ${qty}` }).where(eq(products.id, productId));
   }
 }

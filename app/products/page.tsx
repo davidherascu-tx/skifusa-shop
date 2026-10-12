@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { categories as categoriesTable, getDb, products as productsTable } from "@/lib/db";
 import { ProductCard } from "@/components/product-card";
 import { SortSelect } from "@/components/sort-select";
 import { LockIcon } from "@/components/icons";
@@ -9,10 +10,10 @@ import type { Product } from "@/lib/format";
 export const metadata: Metadata = { title: "Shop" };
 
 const sorts = {
-  newest: { col: "created_at", asc: false },
-  "price-asc": { col: "price_cents", asc: true },
-  "price-desc": { col: "price_cents", asc: false },
-  name: { col: "name", asc: true },
+  newest: desc(productsTable.created_at),
+  "price-asc": asc(productsTable.price_cents),
+  "price-desc": desc(productsTable.price_cents),
+  name: asc(productsTable.name),
 } as const;
 
 export default async function Products({
@@ -22,17 +23,21 @@ export default async function Products({
 }) {
   const { category, sort } = await searchParams;
   const sortKey = sort && sort in sorts ? (sort as keyof typeof sorts) : "newest";
-  const supabase = await createClient();
+  const db = getDb();
 
-  const { data: categories } = await supabase.from("categories").select("slug, name").order("sort_order");
+  const categories = await db
+    .select({ id: categoriesTable.id, slug: categoriesTable.slug, name: categoriesTable.name })
+    .from(categoriesTable)
+    .orderBy(asc(categoriesTable.sort_order));
 
-  let query = supabase
-    .from("products")
-    .select("*, categories!inner(slug, name)")
-    .eq("active", true)
-    .order(sorts[sortKey].col, { ascending: sorts[sortKey].asc });
-  if (category) query = query.eq("categories.slug", category);
-  const { data: products } = await query.overrideTypes<Product[]>();
+  const selected = category ? categories.find((c) => c.slug === category) : undefined;
+  const products = (category && !selected
+    ? []
+    : await db.query.products.findMany({
+        with: { categories: { columns: { slug: true, name: true } } },
+        where: and(eq(productsTable.active, true), selected ? eq(productsTable.category_id, selected.id) : undefined),
+        orderBy: sorts[sortKey],
+      })) as Product[];
 
   const active = categories?.find((c) => c.slug === category);
   const pill = (slug: string) =>

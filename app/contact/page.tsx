@@ -1,25 +1,27 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/components/page-shell";
 import { ContactForm } from "@/components/contact-form";
-import { createClient } from "@/lib/supabase/server";
+import { desc, eq } from "drizzle-orm";
+import { getDb, orders, profiles } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { makeFormToken } from "@/lib/contact";
 
 export const metadata: Metadata = { title: "Contact" };
 
 export default async function Contact() {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const user = await getUser();
 
   // Logged-in customers get their details and order numbers prefilled.
   let prefill = { name: "", email: "" };
   let orderNumbers: string[] = [];
-  if (auth.user) {
-    const [{ data: profile }, { data: orders }] = await Promise.all([
-      supabase.from("profiles").select("full_name").eq("id", auth.user.id).single(),
-      supabase.from("orders").select("id").order("created_at", { ascending: false }).limit(20),
+  if (user) {
+    const db = getDb();
+    const [[profile], myOrders] = await Promise.all([
+      db.select({ full_name: profiles.full_name }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
+      db.select({ id: orders.id }).from(orders).where(eq(orders.user_id, user.id)).orderBy(desc(orders.created_at)).limit(20),
     ]);
-    prefill = { name: profile?.full_name ?? "", email: auth.user.email ?? "" };
-    orderNumbers = (orders ?? []).map((o) => o.id.slice(0, 8).toUpperCase());
+    prefill = { name: profile?.full_name ?? "", email: user.email ?? "" };
+    orderNumbers = myOrders.map((o) => o.id.slice(0, 8).toUpperCase());
   }
 
   return (

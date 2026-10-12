@@ -2,13 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { Metadata } from "next";
-import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { desc, eq, inArray } from "drizzle-orm";
+import { event_access, getDb, member_requests, orders as ordersTable, profiles } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { eventDateLabel, eventTimesByZone, googleCalendarUrl, joinWindowOpen, eventEnd } from "@/lib/event";
 import { money } from "@/lib/format";
 import { AddressFields } from "@/components/address-fields";
 import { Notice } from "@/components/admin/notice";
 import type { Address } from "@/lib/address";
-import { requestCancellation, saveAddress, updateOrderAddress } from "./actions";
+import { changePassword, requestCancellation, saveAddress, updateOrderAddress } from "./actions";
 import { notifyMemberRequest } from "@/lib/notify";
 
 export const metadata: Metadata = { title: "My account" };
@@ -23,18 +25,23 @@ const statusLabel: Record<string, [string, string]> = {
 
 async function requestMemberAccess(formData: FormData) {
   "use server";
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) redirect("/login?next=/account");
+  const user = await getUser();
+  if (!user) redirect("/login?next=/account");
+  const db = getDb();
   const text = (k: string, max: number) => String(formData.get(k) ?? "").trim().slice(0, max);
   const member_number = text("member_number", 50);
   if (!member_number) redirect("/account?member=missing#member-access");
   const dojo = text("dojo", 120) || null;
   const note = text("note", 500) || null;
-  const { error } = await supabase.from("member_requests").insert({ user_id: auth.user.id, member_number, dojo, note });
+  let error = false;
+  try {
+    await db.insert(member_requests).values({ user_id: user.id, member_number, dojo, note });
+  } catch {
+    error = true; // e.g. the customer already has a pending request
+  }
   if (!error) {
-    const { data: me } = await supabase.from("profiles").select("full_name").eq("id", auth.user.id).single();
-    await notifyMemberRequest({ name: me?.full_name ?? "", email: auth.user.email ?? "", member_number, dojo, note });
+    const [me] = await db.select({ full_name: profiles.full_name }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
+    await notifyMemberRequest({ name: me?.full_name ?? "", email: user.email ?? "", member_number, dojo, note });
   }
   revalidatePath("/account");
   redirect(error ? "/account?member=error#member-access" : "/account#member-access");
@@ -42,24 +49,21 @@ async function requestMemberAccess(formData: FormData) {
 
 export default async function Account({ searchParams }: { searchParams: Promise<{ member?: string; saved?: string; error?: string; addr?: string }> }) {
   const { member: memberMsg, saved, error: errorMsg, addr } = await searchParams;
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) redirect("/login?next=/account");
+  const user = await getUser();
+  if (!user) redirect("/login?next=/account");
+  const db = getDb();
 
-  const [{ data: profile }, { data: orders }, { data: requests }] = await Promise.all([
-    supabase.from("profiles").select("full_name, is_member, is_admin, address").eq("id", auth.user.id).single(),
-    supabase
-      .from("orders")
-      .select("id, status, total_cents, created_at, shipping, cancel_requested_at, order_items(name, quantity, size, product_id, products(*))")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("member_requests")
-      .select("status, created_at")
-      .eq("user_id", auth.user.id)
-      .order("created_at", { ascending: false })
-      .limit(1),
+  const [[profile], orders, requests] = await Promise.all([
+    db.select({ full_name: profiles.full_name, is_member: profiles.is_member, is_admin: profiles.is_admin, address: profiles.address }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
+    db.query.orders.findMany({
+      columns: { id: true, status: true, total_cents: true, created_at: true, shipping: true, cancel_requested_at: true },
+      with: { order_items: { columns: { name: true, quantity: true, size: true, product_id: true }, with: { products: true } } },
+      where: eq(ordersTable.user_id, user.id),
+      orderBy: desc(ordersTable.created_at),
+    }),
+    db.select({ status: member_requests.status, created_at: member_requests.created_at }).from(member_requests).where(eq(member_requests.user_id, user.id)).orderBy(desc(member_requests.created_at)).limit(1),
   ]);
-  const request = requests?.[0];
+  const request = requests[0];
   // Private Zoom details: loaded with the service key, but ONLY for events this customer has paid for.
   type EventProduct = { kind?: string | null; event_start?: string | null; event_minutes?: number | null };
   const eventOf = (i: { products?: unknown }) => (i.products ?? null) as EventProduct | null;
@@ -72,8 +76,8 @@ export default async function Account({ searchParams }: { searchParams: Promise<
   ];
   const access = new Map<string, { join_url: string | null; join_info: string | null }>();
   if (paidEventIds.length) {
-    const { data } = await createAdminClient().from("event_access").select("product_id, join_url, join_info").in("product_id", paidEventIds);
-    for (const a of data ?? []) access.set(a.product_id, a);
+    const rows = await db.select({ product_id: event_access.product_id, join_url: event_access.join_url, join_info: event_access.join_info }).from(event_access).where(inArray(event_access.product_id, paidEventIds));
+    for (const a of rows) access.set(a.product_id, a);
   }
   const now = new Date();
   const memberState = profile?.is_member ? "approved" : request?.status === "pending" ? "pending" : request?.status === "rejected" ? "rejected" : "none";
@@ -85,7 +89,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
           <p className="eyebrow">My account</p>
           <h1 className="display mt-2 text-5xl">{profile?.full_name || "Welcome"}</h1>
           <p className="mt-2 text-sm text-muted">
-            {auth.user.email}
+            {user.email}
             {profile?.is_member && (
               <span className="ml-3 rounded-full bg-crimson px-3 py-1 text-xs font-semibold text-white">S.K.I.F. Member</span>
             )}
@@ -208,7 +212,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
                         Cancellation requested on {new Date(o.cancel_requested_at).toLocaleDateString("en-US", { dateStyle: "medium" })}. We will review it and update this order.
                       </p>
                     )}
-                    {o.shipping && (
+                    {!!o.shipping && (
                     <details>
                       <summary className="cursor-pointer font-semibold hover:text-crimson">Change shipping address</summary>
                       <form action={updateOrderAddress} className="mt-3 grid max-w-md gap-3">
@@ -249,6 +253,17 @@ export default async function Account({ searchParams }: { searchParams: Promise<
         <form action={saveAddress} className="mt-5 grid max-w-xl gap-3">
           <AddressFields defaults={profile?.address as Address | null} />
           <button className="btn btn-dark w-fit !px-8">Save address</button>
+        </form>
+      </section>
+
+      <section id="password" className="mt-10 scroll-mt-32 rounded-3xl border border-line p-7">
+        <h2 className="display text-3xl">Change password</h2>
+        <p className="mt-2 max-w-xl text-sm text-stone-600">Choose a new password. You will stay signed in here; other devices are signed out.</p>
+        <form action={changePassword} className="mt-5 grid max-w-md gap-3">
+          <input name="current" type="password" required placeholder="Current password" autoComplete="current-password" className="input" />
+          <input name="password" type="password" required minLength={8} placeholder="New password (min. 8 characters)" autoComplete="new-password" className="input" />
+          <input name="confirm" type="password" required minLength={8} placeholder="Repeat new password" autoComplete="new-password" className="input" />
+          <button className="btn btn-dark w-fit !px-8">Change password</button>
         </form>
       </section>
     </div>

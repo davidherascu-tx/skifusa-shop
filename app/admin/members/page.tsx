@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin";
-import { createAdminClient } from "@/lib/supabase/server";
+import { desc, inArray } from "drizzle-orm";
+import { member_requests, profiles, user as userTable } from "@/lib/db";
 import { reviewMemberRequest } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
 import { Notice } from "@/components/admin/notice";
@@ -29,33 +30,22 @@ export default async function AdminMembers({
   searchParams: Promise<{ status?: string; saved?: string; error?: string }>;
 }) {
   const { status, saved, error } = await searchParams;
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
   const tab = tabs.find((t) => t === status) ?? "pending";
 
-  const { data } = await supabase
-    .from("member_requests")
-    .select("id, user_id, member_number, dojo, note, status, created_at, reviewed_at")
-    .order("created_at", { ascending: false })
-    .limit(500)
-    .overrideTypes<Req[]>();
-  const all = data ?? [];
+  const all = (await db.select().from(member_requests).orderBy(desc(member_requests.created_at)).limit(500)) as Req[];
   const rows = all.filter((r) => r.status === tab);
 
-  // member_requests points at auth.users (not profiles), so names are a separate lookup.
-  const { data: profiles } = rows.length
-    ? await supabase.from("profiles").select("id, full_name").in("id", rows.map((r) => r.user_id))
-    : { data: [] };
-  const names = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
-
-  // Emails live in the auth schema, so look them up server-side with the service key.
-  const admin = createAdminClient();
-  const emails = new Map<string, string>();
-  await Promise.all(
-    rows.map(async (r) => {
-      const { data: u } = await admin.auth.admin.getUserById(r.user_id);
-      if (u.user?.email) emails.set(r.user_id, u.user.email);
-    }),
-  );
+  // Names live on profiles, emails on the user table.
+  const ids = rows.map((r) => r.user_id);
+  const [profileRows, userRows] = ids.length
+    ? await Promise.all([
+        db.select({ id: profiles.id, full_name: profiles.full_name }).from(profiles).where(inArray(profiles.id, ids)),
+        db.select({ id: userTable.id, email: userTable.email }).from(userTable).where(inArray(userTable.id, ids)),
+      ])
+    : [[], []];
+  const names = new Map(profileRows.map((p) => [p.id, p.full_name]));
+  const emails = new Map(userRows.map((u) => [u.id, u.email]));
 
   const returnTo = `/admin/members?status=${tab}`;
 

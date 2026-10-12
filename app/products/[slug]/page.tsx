@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { and, eq } from "drizzle-orm";
+import { getDb, products as productsTable, profiles } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { AddToCart } from "@/components/add-to-cart";
 import { Description } from "@/components/description";
 import { EventDetails } from "@/components/event-details";
@@ -12,14 +14,11 @@ import { LockIcon } from "@/components/icons";
 import { productImage } from "@/lib/images";
 
 async function getProduct(slug: string) {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("products")
-    .select("*, categories(slug, name)")
-    .eq("slug", slug)
-    .eq("active", true)
-    .maybeSingle<Product>();
-  return data;
+  const data = await getDb().query.products.findFirst({
+    with: { categories: { columns: { slug: true, name: true } } },
+    where: and(eq(productsTable.slug, slug), eq(productsTable.active, true)),
+  });
+  return (data ?? null) as Product | null;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -35,10 +34,9 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const membersOnly = isMembersOnly(p);
   let isMember = false;
   if (membersOnly) {
-    const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (auth.user) {
-      const { data: profile } = await supabase.from("profiles").select("is_member").eq("id", auth.user.id).single();
+    const user = await getUser();
+    if (user) {
+      const [profile] = await getDb().select({ is_member: profiles.is_member }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
       isMember = !!profile?.is_member;
     }
   }

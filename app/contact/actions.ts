@@ -1,7 +1,9 @@
 "use server";
 
 import { headers } from "next/headers";
-import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { and, count as countFn, eq, gte, sql, type SQL } from "drizzle-orm";
+import { contact_messages, getDb } from "@/lib/db";
+import { getUser } from "@/lib/session";
 import { notifyContact } from "@/lib/notify";
 import { LIMITS, checkFormToken, contactSchema, countLinks, hashIp, normalizeOrderNumber, oneLine } from "@/lib/contact";
 
@@ -59,28 +61,28 @@ export async function sendContact(prev: ContactState, formData: FormData): Promi
   if (countLinks(parsed.data.message) > 2) return fail("Please remove the links from your message.", { message: "Too many links" });
 
   // 5) Rate limits, using the messages table (a keyed hash of the IP is stored, never the IP).
-  const admin = createAdminClient();
+  const db = getDb();
   const ipHash = await hashIp(ip);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const count = async (q: { eq?: [string, string]; ilike?: [string, string] }) => {
-    let query = admin.from("contact_messages").select("id", { count: "exact", head: true }).gte("created_at", since);
-    if (q.eq) query = query.eq(...q.eq);
-    if (q.ilike) query = query.ilike(...q.ilike);
-    const { count: c, error } = await query;
-    return error ? 0 : (c ?? 0); // if the table is missing we fail open and still deliver the message by email
+  const count = async (extra?: SQL) => {
+    try {
+      const [row] = await db.select({ n: countFn() }).from(contact_messages).where(and(gte(contact_messages.created_at, since), extra));
+      return row?.n ?? 0;
+    } catch {
+      return 0; // fail open: the message is still delivered by email
+    }
   };
   const [byIp, byEmail, all] = await Promise.all([
-    ip === "unknown" ? Promise.resolve(0) : count({ eq: ["ip_hash", ipHash] }),
-    count({ ilike: ["email", parsed.data.email] }),
-    count({}),
+    ip === "unknown" ? Promise.resolve(0) : count(eq(contact_messages.ip_hash, ipHash)),
+    count(sql`lower(${contact_messages.email}) = ${parsed.data.email.toLowerCase()}`),
+    count(),
   ]);
   if (byIp >= LIMITS.perIp || byEmail >= LIMITS.perEmail || all >= LIMITS.global) {
     return fail("You have sent several messages already. Please try again in a little while.");
   }
 
   // 6) Save + email the owner.
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const user = await getUser();
   const record = {
     name: oneLine(parsed.data.name),
     email: parsed.data.email,
@@ -89,8 +91,11 @@ export async function sendContact(prev: ContactState, formData: FormData): Promi
     order_number: order ?? null,
     message: parsed.data.message,
   };
-  const { error } = await admin.from("contact_messages").insert({ ...record, user_id: auth.user?.id ?? null, ip_hash: ip === "unknown" ? null : ipHash });
-  if (error) console.error("[contact] could not save message (is migration 0005 applied?):", error.message);
+  try {
+    await db.insert(contact_messages).values({ ...record, user_id: user?.id ?? null, ip_hash: ip === "unknown" ? null : ipHash });
+  } catch (e) {
+    console.error("[contact] could not save message:", e);
+  }
   await notifyContact(record);
 
   return { status: "ok", attempt };

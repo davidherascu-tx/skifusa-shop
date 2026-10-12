@@ -1,5 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
+import { asc } from "drizzle-orm";
+import { products as productsTable } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 import { saveProduct } from "../actions";
 import { SaveButton } from "@/components/admin/save-button";
@@ -34,16 +36,16 @@ export default async function AdminStock({
   searchParams: Promise<{ filter?: string; q?: string; saved?: string; error?: string }>;
 }) {
   const { filter = "", q = "", saved, error } = await searchParams;
-  const { supabase } = await requireAdmin();
+  const { db } = await requireAdmin();
 
-  const { data } = await supabase
-    .from("products")
-    .select("id, slug, name, price_cents, sale_price_cents, stock, active, image_url, categories(name, slug)")
-    .order("name")
-    .overrideTypes<Row[]>();
+  const data = (await db.query.products.findMany({
+    columns: { id: true, slug: true, name: true, price_cents: true, sale_price_cents: true, stock: true, active: true, image_url: true },
+    with: { categories: { columns: { name: true, slug: true } } },
+    orderBy: asc(productsTable.name),
+  })) as Row[];
 
   const term = q.trim().toLowerCase();
-  const rows = (data ?? []).filter((p) => {
+  const rows = data.filter((p) => {
     if (term && !`${p.name} ${p.categories?.name ?? ""}`.toLowerCase().includes(term)) return false;
     if (filter === "low") return p.stock > 0 && p.stock <= LOW_STOCK;
     if (filter === "out") return p.stock === 0;
